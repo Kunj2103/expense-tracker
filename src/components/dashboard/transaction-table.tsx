@@ -1,30 +1,32 @@
 "use client";
 
 import { useState, useMemo, useOptimistic, useTransition } from "react";
-import { Download, Repeat, Search, Trash2 } from "lucide-react";
+import { Download, Pencil, Repeat, Search, Trash2 } from "lucide-react";
 import { deleteTransaction } from "@/lib/actions/transactions";
 import { exportTransactionsToCsv } from "@/lib/csv-export";
 import { formatCurrency } from "@/lib/utils";
+import { TransactionModal } from "@/components/dashboard/transaction-modal";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import type { Transaction } from "@/types/database";
+import type { CounterpartySuggestion, Transaction } from "@/types/database";
 
 const PAGE_SIZE = 12;
 
 export function TransactionTable({
   transactions,
-  activeOverviewMonth,
+  suggestions = [],
 }: {
   transactions: Transaction[];
-  activeOverviewMonth?: string;
+  suggestions?: CounterpartySuggestion[];
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMonth, setSelectedMonth] = useState("ALL");
   const [selectedCategory, setSelectedCategory] = useState("ALL");
   const [selectedMethod, setSelectedMethod] = useState("ALL");
   const [currentPage, setCurrentPage] = useState(1);
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const [optimisticTransactions, removeOptimisticTransaction] = useOptimistic(
@@ -33,10 +35,15 @@ export function TransactionTable({
       currentState.filter((tx) => tx.id !== deletedId),
   );
 
-  // Extract available months from transaction history for the table's own month filter
+  const handleOptimisticDelete = (id: string) => {
+    startTransition(async () => {
+      removeOptimisticTransaction(id);
+      await deleteTransaction(id);
+    });
+  };
+
   const monthOptions = useMemo(() => {
     const set = new Set(optimisticTransactions.map((t) => t.date.slice(0, 7)));
-    if (activeOverviewMonth) set.add(activeOverviewMonth);
     const sorted = Array.from(set).sort().reverse();
     return [
       { label: "All Months (Full History)", value: "ALL" },
@@ -49,14 +56,7 @@ export function TransactionTable({
         return { label, value: m };
       }),
     ];
-  }, [optimisticTransactions, activeOverviewMonth]);
-
-  const handleOptimisticDelete = (id: string) => {
-    startTransition(async () => {
-      removeOptimisticTransaction(id);
-      await deleteTransaction(id);
-    });
-  };
+  }, [optimisticTransactions]);
 
   const categories = useMemo(() => {
     const set = new Set(optimisticTransactions.map((t) => t.category));
@@ -108,21 +108,18 @@ export function TransactionTable({
     return filtered.slice(start, start + PAGE_SIZE);
   }, [filtered, currentPage]);
 
-  if (optimisticTransactions.length === 0) {
-    return (
-      <Card className="p-10 text-center">
-        <p className="text-sm text-slate-500">
-          No transactions recorded yet. Click &ldquo;Add Transaction&rdquo; to
-          get started.
-        </p>
-      </Card>
-    );
-  }
-
   return (
     <div className="space-y-4">
+      {/* Edit Modal Instance */}
+      <TransactionModal
+        suggestions={suggestions}
+        editingTransaction={editingTx}
+        onCloseEdit={() => setEditingTx(null)}
+        hideTriggerButton
+      />
+
       <Card className="p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <Input
@@ -135,7 +132,7 @@ export function TransactionTable({
               className="pl-9"
             />
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:flex lg:items-center">
             <Select
               options={monthOptions}
               value={selectedMonth}
@@ -188,7 +185,7 @@ export function TransactionTable({
                 <th className="px-4 py-3.5">Method</th>
                 <th className="px-4 py-3.5">Notes</th>
                 <th className="px-4 py-3.5 text-right">Amount</th>
-                <th className="px-4 py-3.5 text-right">Action</th>
+                <th className="px-4 py-3.5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -243,15 +240,27 @@ export function TransactionTable({
                         {formatCurrency(tx.amount)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={isPending}
-                          onClick={() => handleOptimisticDelete(tx.id)}
-                          aria-label="Delete transaction"
-                        >
-                          <Trash2 className="h-4 w-4 text-rose-500" />
-                        </Button>
+                        <div className="inline-flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setEditingTx(tx)}
+                            aria-label="Edit transaction"
+                            title="Edit transaction"
+                          >
+                            <Pencil className="h-4 w-4 text-slate-600 hover:text-indigo-600" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={isPending}
+                            onClick={() => handleOptimisticDelete(tx.id)}
+                            aria-label="Delete transaction"
+                            title="Delete transaction"
+                          >
+                            <Trash2 className="h-4 w-4 text-rose-500" />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );

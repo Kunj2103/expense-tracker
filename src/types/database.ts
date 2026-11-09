@@ -35,6 +35,7 @@ export type UserSettings = {
   monthly_budget: number;
   alert_threshold_percent: number;
   push_enabled: boolean;
+  webhook_token?: string;
   updated_at?: string;
 };
 

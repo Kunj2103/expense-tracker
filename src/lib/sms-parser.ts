@@ -1,6 +1,7 @@
 import type { TransactionType } from "@/types/database";
 
 export interface ParsedSmsTransaction {
+  isValidTransaction: boolean;
   type: TransactionType;
   amount?: number;
   category: string;
@@ -22,9 +23,15 @@ export function parseTransactionSms(rawText: string): ParsedSmsTransaction {
   const text = rawText.trim();
   const lower = text.toLowerCase();
 
+  // 1. Ignore OTPs, login codes, and promotional spam when triggering on "Rs." / "₹"
+  const isOtpOrPromo =
+    /\b(otp|one time password|verification code|win up to|loan offer|pre-approved)\b/i.test(text);
+  const hasTxVerb =
+    /\b(debited|credited|spent|paid|sent|received|deposited|withdrawn|deducted|transferred)\b/i.test(text);
+
   const isIncome =
     /\b(credited|received|deposited|refund|cashback)\b/i.test(text) &&
-    !/\b(debited|spent|paid|sent)\b/i.test(text);
+    !/\b(debited|spent|paid|sent|deducted)\b/i.test(text);
   const type: TransactionType = isIncome ? "INCOME" : "EXPENSE";
 
   const amountMatch = text.match(
@@ -55,11 +62,12 @@ export function parseTransactionSms(rawText: string): ParsedSmsTransaction {
   }
 
   return {
+    isValidTransaction: !isOtpOrPromo && hasTxVerb && Boolean(amount && amount > 0),
     type,
     amount: amount && !Number.isNaN(amount) ? amount : undefined,
     category,
     payment_method,
     counterparty,
-    notes: counterparty ? `Paid via ${payment_method}` : text.slice(0, 60),
+    notes: counterparty ? `Auto-synced (${payment_method})` : text.slice(0, 60),
   };
 }

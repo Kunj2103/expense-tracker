@@ -448,6 +448,7 @@ export async function getCategoryBreakdown(yearMonth?: string): Promise<Category
 
   return breakdown.sort((a, b) => b.total - a.total);
 }
+
 export async function getUserSettings(): Promise<UserSettings> {
   const { supabase, user } = await requireUser();
   const { data } = await supabase
@@ -456,19 +457,70 @@ export async function getUserSettings(): Promise<UserSettings> {
     .eq("user_id", user.id)
     .single();
 
-  if (!data) {
+  if (data) {
     return {
+      ...data,
+      monthly_budget: Number(data.monthly_budget),
+    };
+  }
+
+  const { data: created } = await supabase
+    .from("user_settings")
+    .upsert({
       user_id: user.id,
       monthly_budget: 0,
       alert_threshold_percent: 80,
       push_enabled: true,
-    };
-  }
+    })
+    .select("*")
+    .single();
 
   return {
-    ...data,
-    monthly_budget: Number(data.monthly_budget),
+    user_id: user.id,
+    monthly_budget: Number(created?.monthly_budget ?? 0),
+    alert_threshold_percent: created?.alert_threshold_percent ?? 80,
+    push_enabled: created?.push_enabled ?? true,
+    webhook_token: created?.webhook_token,
   };
+}
+
+export async function updateTransaction(
+  id: string,
+  input: TransactionFormValues
+) {
+  const validId = idSchema.safeParse(id);
+  if (!validId.success) return { error: "Invalid transaction ID" };
+
+  const parsed = transactionSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.errors[0].message };
+
+  try {
+    const { supabase, user } = await requireUser();
+
+    const { error } = await supabase
+      .from("transactions")
+      .update({
+        type: parsed.data.type,
+        amount: parsed.data.amount,
+        date: parsed.data.date,
+        category: parsed.data.category,
+        payment_method: parsed.data.payment_method || null,
+        counterparty: parsed.data.counterparty || null,
+        notes: parsed.data.notes || null,
+      })
+      .eq("id", validId.data)
+      .eq("user_id", user.id);
+
+    if (error) return { error: error.message };
+
+    revalidatePath("/dashboard");
+    return { success: true };
+  } catch (err) {
+    return {
+      error:
+        err instanceof Error ? err.message : "Failed to update transaction",
+    };
+  }
 }
 
 export async function updateBudgetSettings(input: BudgetSettingsValues) {
